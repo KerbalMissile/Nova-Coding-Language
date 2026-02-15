@@ -1,0 +1,37 @@
+// NovaApp.nova - Full Nova GUI app with logo, labels, buttons, and exit
+// Keywords: 'have' instead of 'let', 'put' instead of 'print'
+
+have appName = "Nova"
+have version = 1.0
+
+put("Starting " + appName + " v" + version)
+
+ui_window("Nova App with Logo", 420, 260) {
+    // set_icon: path relative to the .nova file or where the exe will be.
+    // Compiler will attempt to copy the referenced file next to the generated exe.
+    set_icon("NovaLanguage/NovaLanguageIcon.ico")
+
+    // Welcome label next to the icon
+    label("Welcome to " + appName + " v" + version, 100, 18, 280, 30)
+
+    // Description
+    label("This app uses the Nova logo as the window icon or shows it inside.", 100, 48, 300, 20)
+
+    // Button to show a message box
+    button("Say Hello", 140, 100) {
+        ui_message("Hello! This app uses the Nova logo as the icon.")
+    }
+
+    // Button to log to console
+    button("Log to Console", 140, 140) {
+        put("Log: User clicked the Log to Console button.")
+    }
+
+    // Exit
+    button("Exit", 140, 180) {
+        Application.Exit()
+    }
+}
+
+// Keep console open if compiled as console exe
+pause()

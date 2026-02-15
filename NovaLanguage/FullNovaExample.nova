@@ -1,0 +1,51 @@
+// Nova Language Feature Showcase
+// This script demonstrates variables, console output, loops, and GUI components.
+
+// Initialize global application data
+have appName = "Nova Showcase"
+have version = 1.2
+put("Initializing " + appName + " v" + version)
+
+// Create the main application window
+ui_window("Nova Feature Demo", 450, 350) {
+    // Set the window icon (requires .ico for title bar or .png for internal logo)
+    set_icon("NovaLanguage/NovaLanguageIcon.ico")
+
+    // Display a header label
+    label("Nova Language: Full Feature Demonstration", 20, 20, 400, 25)
+
+    // Interactive button with a popup message
+    button("Show Message", 20, 60) {
+        ui_message("This is a native UI message triggered from Nova code.")
+    }
+
+    // Logic for tracking state within the GUI
+    have clickCount = 0
+    button("Increment Counter", 20, 100) {
+        clickCount = clickCount + 1
+        ui_message("Current count: " + clickCount)
+    }
+
+    // Button to safely terminate the application
+    button("Close App", 20, 140) {
+        Application.Exit()
+    }
+}
+
+// Demonstrate control flow using a while loop
+put("Starting countdown sequence...")
+have timer = 5
+while (timer > 0) {
+    put("T-minus: " + timer)
+    timer = timer - 1
+}
+
+// Conditional logic demonstration
+when (timer == 0) {
+    put("Sequence complete.")
+} otherwise {
+    put("Sequence interrupted.")
+}
+
+// Prevent the console from closing immediately after execution
+pause()
