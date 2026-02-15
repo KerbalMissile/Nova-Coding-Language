@@ -1,16 +1,18 @@
 # Nova Language
 
+<img width="800" height="800" alt="NovaLanguageIcon" src="https://github.com/user-attachments/assets/7e5721bc-2762-449a-94c0-0e8ce235603e" />
+
 Nova is simple but powerful and beginner-friendly coding language made by me (KerbalMissile). This specific project does include a basic GUI compiler that translates Nova code into C# then uses Window's default C# compiler to turn it into `.exe` or `.dll` files for use.
 
 ---
 
 ## Features
 
-- **Natural Syntax:** Nova uses keywords like `have` (variables), `put` (output), `when` (if), and `otherwise` (else) to make code easier to read.
+- **Natural Syntax:** Nova uses keywords like `have` (variables), `put` (print), `when` (if), and `otherwise` (else) to make code easier to read.
 - **GUI Support:** Nova also can be used to make extremely basic UI's / Apps using basic code. A basic UI can be done in about 15 lines of code excluding spaces or comments.
 - **GUI Compilation:** For compilation, Nova uses a GUI written in Python that can be used to compile it into .dll's or .exe's, it first converts to C# then uses Window's default C# compiler to convert it into .dll's or .exe's
 - **Icon Handling:** Nova uses .ico for the icons displayed in UI's but will have automatic translation to .ico's from PNG's in the future.
-- **Open Source:** License under the GNU GPL v3 to keep Nova freen and open for the community. It isn't too complex and I didn't think it needed to be more private, I would love as many suggestions or contributions as possible!
+- **Open Source:** Licensed under the GNU GPL v3 to keep Nova freen and open for the community. It isn't too complex and I didn't think it needed to be more private, I would love as many suggestions or contributions as possible!
 
 ---
 
@@ -71,5 +73,6 @@ Contributions, bug reports, and feature requests are welcome! Feel free to pen i
 For questions or help, open an issue on the GitHub repo or reach out to me, KerbalMissile. You can find me on Discord, username is **kerbalmissile**, aswell.
 
 ---
+
 
 Thank you for looking at or maybe even trying out Nova!
