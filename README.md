@@ -12,7 +12,7 @@ Nova is simple but powerful and beginner-friendly coding language made by me (Ke
 - **GUI Support:** Nova also can be used to make extremely basic UI's / Apps using basic code. A basic UI can be done in about 15 lines of code excluding spaces or comments.
 - **GUI Compilation:** For compilation, Nova uses a GUI written in Python that can be used to compile it into .dll's or .exe's, it first converts to C# then uses Window's default C# compiler to convert it into .dll's or .exe's
 - **Icon Handling:** Nova uses .ico for the icons displayed in UI's but will have automatic translation to .ico's from PNG's in the future.
-- **Open Source:** Licensed under the GNU GPL v3 to keep Nova freen and open for the community. It isn't too complex and I didn't think it needed to be more private, I would love as many suggestions or contributions as possible!
+- **Open Source:** Licensed under the GNU GPL v3 to keep Nova free and open for the community. It isn't too complex and I didn't think it needed to be more private, I would love as many suggestions or contributions as possible!
 
 ---
 
@@ -76,4 +76,5 @@ For questions or help, open an issue on the GitHub repo or reach out to me, Kerb
 
 
 Thank you for looking at or maybe even trying out Nova!
+
 
