@@ -4,7 +4,7 @@
 
 <img width="500" height="500" alt="NovaLanguageIcon" src="https://github.com/user-attachments/assets/7e5721bc-2762-449a-94c0-0e8ce235603e" />
 
-Nova is simple but powerful and beginner-friendly coding language made by me (KerbalMissile). This specific project does include a basic GUI compiler that translates Nova code into C# then uses Window's default C# compiler to turn it into `.exe` or `.dll` files for use.
+Nova is simple but powerful and a beginner-friendly coding language made by me (KerbalMissile). This specific project does include a basic GUI compiler that translates Nova code into C# then uses Window's default C# compiler to turn it into `.exe` or `.dll` files for use.
 
 ---
 
@@ -78,6 +78,7 @@ For questions or help, open an issue on the GitHub repo or reach out to me, Kerb
 
 
 Thank you for looking at or maybe even trying out Nova!
+
 
 
 
