@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Nova",
+  "scopeName": "source.nova",
+  "patterns": [
+    {
+      "name": "comment.line.double-slash.nova",
+      "match": "//.*$"
+    },
+    {
+      "name": "string.quoted.double.nova",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.nova",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "name": "keyword.control.nova",
+      "match": "\\b(when|otherwise|while|pause)\\b"
+    },
+    {
+      "name": "keyword.other.nova",
+      "match": "\\b(have|put)\\b"
+    },
+    {
+      "name": "entity.name.function.nova",
+      "match": "\\b(ui_window|ui_message|set_icon|label|button|Application\\.Exit)\\b"
+    },
+    {
+      "name": "constant.numeric.nova",
+      "match": "\\b\\d+(\\.\\d+)?\\b"
+    },
+    {
+      "name": "keyword.operator.nova",
+      "match": "(\\+|\\-|\\*|\\/|\\=|\\=\\=|\\>|\\<)"
+    }
+  ]
+}

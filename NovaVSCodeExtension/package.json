@@ -1,0 +1,31 @@
+{
+  "name": "nova-syntax",
+  "displayName": "Nova Syntax",
+  "description": "Syntax highlighting for the Nova language",
+  "version": "1.0.0",
+  "publisher": "KerbalMissile",
+  "engines": {
+    "vscode": "^1.50.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "icon": "NovaLanguageIcon.png",
+  "contributes": {
+    "languages": [
+      {
+        "id": "nova",
+        "aliases": ["Nova", "nova"],
+        "extensions": [".nova"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nova",
+        "scopeName": "source.nova",
+        "path": "./syntaxes/nova.tmLanguage.json"
+      }
+    ]
+  }
+}
