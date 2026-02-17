@@ -44,7 +44,7 @@ Nova use a clean natural syntax, here's a `Hello, World!` example:
 
 ```put("Hello, World!")```
 
-For more info and documentaion on how to code in Nova look at the [wiki](https://github.com/KerbalMissile/Nova-Coding-Language/wiki) (WIP)!
+For more info and documentaion on how to code in Nova look at the [wiki](https://github.com/KerbalMissile/Nova-Coding-Language/wiki).
 
 ---
 
@@ -78,6 +78,7 @@ For questions or help, open an issue on the GitHub repo or reach out to me, Kerb
 
 
 Thank you for looking at or maybe even trying out Nova!
+
 
 
 
