@@ -1,310 +1,849 @@
 #!/usr/bin/env python3
-import os
-import shutil
-import subprocess
-import sys
+"""
+nova_compiler.py  –  Nova → IL → .exe
+New features:
+  button_grid(labelsArr, xsArr, ysArr, w, h, "Prefix")
+      Compile-time unroll: creates one button per array element.
+  on_button("Prefix", N) { ... }
+      Defines the handler body for button Prefix_N.
+  Multi-statement lines: separate statements with two or more spaces.
+      e.g.  numA = 0  numB = 0  opCode = 0
+  Inline blocks: { stmt  stmt }  on the same line.
+"""
+
+import os, re, shutil, subprocess
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, scrolledtext, messagebox
 
-try:
-    from PIL import Image
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
 
-def convert_png_to_ico(png_path, ico_path):
-    if not PIL_AVAILABLE:
-        return False
-    try:
-        img = Image.open(png_path)
-        img.save(ico_path, format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
-        return True
-    except Exception as e:
-        print(f"Failed to convert PNG to ICO: {e}")
-        return False
+# ── ilasm finder ─────────────────────────────────────────────────────────────
 
-def translate_nova_to_csharp(source_code, classname="NovaProgram"):
-    lines = source_code.splitlines()
-    body_lines = []
-    needs_forms = False
-    needs_drawing = False
-    icon_source = None
-    icon_basename = None
-    icon_is_png = False
+def find_ilasm_path():
+    windir = os.environ.get("WINDIR", r"C:\Windows")
+    base   = os.path.join(windir, "Microsoft.NET")
+    for fw in ("Framework64", "Framework"):
+        fwbase = os.path.join(base, fw)
+        if not os.path.isdir(fwbase): continue
+        for v in sorted([d for d in os.listdir(fwbase) if d.startswith("v")], reverse=True):
+            p = os.path.join(fwbase, v, "ilasm.exe")
+            if os.path.isfile(p): return p
+    return None
 
-    def add_line(l, indent=2):
-        body_lines.append("    " * indent + l)
 
-    def extract_args(header):
-        start, end = header.find("("), header.rfind(")")
-        if start == -1 or end == -1:
-            return []
-        inner = header[start + 1:end].strip()
-        if not inner:
-            return []
-        parts = [p.strip() for p in inner.split(",")]
-        return parts
+def escape_il(s):
+    return s.replace("\\", "\\\\").replace('"', '\\"')
 
+
+# ── source pre-processor ──────────────────────────────────────────────────────
+
+def _strip_comment(s):
+    """Remove // comment from a line, respecting string literals."""
+    out, in_str = [], False
     i = 0
-    while i < len(lines):
-        raw = lines[i]
-        line = raw.strip()
+    while i < len(s):
+        c = s[i]
+        if   c == '"' and not in_str: in_str = True;  out.append(c)
+        elif c == '"' and in_str:     in_str = False; out.append(c)
+        elif c == '/' and not in_str and i+1 < len(s) and s[i+1] == '/': break
+        else: out.append(c)
         i += 1
-        if not line or line.startswith("//"):
-            continue
+    return ''.join(out).rstrip()
 
-        if line.startswith("ui_window"):
-            needs_forms = True
-            needs_drawing = True
-            args = extract_args(line)
-            title = args[0] if len(args) >= 1 else '"Nova App"'
-            w = args[1] if len(args) >= 2 else "400"
-            h = args[2] if len(args) >= 3 else "300"
-            form_var = f"form_{i}"
-            add_line(f"Form {form_var} = new Form();")
-            add_line(f"{form_var}.Text = {title};")
-            add_line(f"{form_var}.ClientSize = new System.Drawing.Size({w}, {h});")
-            while i < len(lines):
-                inner_raw = lines[i]
-                inner = inner_raw.strip()
-                i += 1
-                if inner == "}" or inner.startswith("}"):
-                    break
-                if not inner or inner.startswith("//"):
-                    continue
-                if inner.startswith("set_icon"):
-                    a = extract_args(inner)
-                    if a:
-                        p = a[0].strip('"')
-                        icon_source = p
-                        icon_basename = os.path.basename(p)
-                        if icon_basename.lower().endswith(".png"):
-                            icon_is_png = True
-                            icon_basename = os.path.splitext(icon_basename)[0] + ".ico"
-                        cs_icon = (
-                            "try { string _p = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "
-                            + "\"" + icon_basename + "\"); "
-                            + "if(_p.ToLower().EndsWith(\".ico\")) " + form_var + ".Icon = new System.Drawing.Icon(_p); "
-                            + "else { var pb = new PictureBox(); pb.Image = System.Drawing.Image.FromFile(_p); pb.SizeMode = PictureBoxSizeMode.Zoom; pb.SetBounds(8,8,64,64); "
-                            + form_var + ".Controls.Add(pb); } } catch (Exception ex) { Console.WriteLine(\"Icon load error: \" + ex.Message); }"
-                        )
-                        add_line(cs_icon)
-                elif inner.startswith("label"):
-                    a = extract_args(inner)
-                    txt = a[0] if a else '""'
-                    lbl = f"lbl_{i}"
-                    add_line(f"Label {lbl} = new Label() {{ Text = {txt}, AutoSize = true }};")
-                    if len(a) >= 3:
-                        width = a[3] if len(a) >= 4 else "200"
-                        height = a[4] if len(a) >= 5 else "24"
-                        add_line(f"{lbl}.SetBounds({a[1]}, {a[2]}, {width}, {height});")
-                    else:
-                        add_line(f"{lbl}.Location = new System.Drawing.Point(80, 20);")
-                    add_line(f"{form_var}.Controls.Add({lbl});")
-                elif inner.startswith("button"):
-                    a = extract_args(inner)
-                    txt = a[0] if a else '"Button"'
-                    btn = f"btn_{i}"
-                    add_line(f"Button {btn} = new Button() {{ Text = {txt} }};")
-                    if len(a) >= 3:
-                        add_line(f"{btn}.SetBounds({a[1]}, {a[2]}, 100, 30);")
-                    else:
-                        add_line(f"{btn}.SetBounds(80, 100, 100, 30);")
-                    if "{" in inner or (i < len(lines) and "{" in lines[i]):
-                        add_line(f"{btn}.Click += (s, e) => {{")
-                        while i < len(lines):
-                            cmd_raw = lines[i]
-                            cmd = cmd_raw.strip()
-                            i += 1
-                            if cmd == "}" or cmd.startswith("}"):
-                                break
-                            if not cmd or cmd.startswith("//"):
-                                continue
-                            if cmd.startswith("ui_message"):
-                                add_line("MessageBox.Show" + cmd[10:] + (";" if not cmd.endswith(";") else ""), 3)
-                            elif cmd.startswith("put"):
-                                add_line("Console.WriteLine" + cmd[3:] + (";" if not cmd.endswith(";") else ""), 3)
-                            elif cmd.startswith("have "):
-                                add_line("var " + cmd[5:] + (";" if not cmd.endswith(";") else ""), 3)
-                            elif cmd.startswith("Application.Exit"):
-                                add_line("Application.Exit();", 3)
-                            else:
-                                t = cmd
-                                if not (t.endswith(";") or t.endswith("{") or t.endswith("}")):
-                                    t = t + ";"
-                                add_line(t, 3)
-                        add_line("};")
-                    add_line(f"{form_var}.Controls.Add({btn});")
+
+def _split_stmts(s):
+    """Split on 2+ spaces that are outside parens, brackets and quotes.
+    Lines starting with 'have' or 'use' are never split (may have alignment spaces).
+    """
+    st = s.strip()
+    if st.startswith('use '): return [st]
+    # Multiple 'have' on one line: split on '  have ' boundaries
+    if st.startswith('have '):
+        parts = re.split(r'  +(?=have )', st)
+        return [p.strip() for p in parts if p.strip()]
+    parts, cur = [], ''
+    depth_p = depth_b = 0
+    in_str = False
+    i = 0
+    while i < len(s):
+        c = s[i]
+        if   c == '"' and not in_str: in_str = True;  cur += c
+        elif c == '"' and in_str:     in_str = False; cur += c
+        elif not in_str and c == '(': depth_p += 1; cur += c
+        elif not in_str and c == ')': depth_p -= 1; cur += c
+        elif not in_str and c == '[': depth_b += 1; cur += c
+        elif not in_str and c == ']': depth_b -= 1; cur += c
+        elif not in_str and depth_p == 0 and depth_b == 0 and c == ';':
+            tok = cur.strip()
+            if tok: parts.append(tok)
+            cur = ''
+        elif (not in_str and depth_p == 0 and depth_b == 0
+              and c == ' ' and i+1 < len(s) and s[i+1] == ' '):
+            tok = cur.strip()
+            if tok: parts.append(tok)
+            cur = ''
+            while i < len(s) and s[i] == ' ': i += 1
+            continue
+        else: cur += c
+        i += 1
+    tok = cur.strip()
+    if tok: parts.append(tok)
+    return parts or [s.strip()]
+
+
+def _expand_line(s, base_indent):
+    """Expand a line with inline { } blocks and multi-statement double-spaces
+    into a list of properly indented lines."""
+    if '{' not in s and '}' not in s:
+        return [' ' * base_indent + p for p in _split_stmts(s) if p.strip()]
+
+    result = []
+    cur = ''
+    depth = 0
+    in_str = False
+    depth_p = 0
+    for ch in s:
+        if   ch == '"' and not in_str: in_str = True;  cur += ch
+        elif ch == '"' and in_str:     in_str = False; cur += ch
+        elif not in_str and ch == '(': depth_p += 1; cur += ch
+        elif not in_str and ch == ')': depth_p -= 1; cur += ch
+        elif not in_str and depth_p == 0 and ch == '{':
+            for sub in _split_stmts(cur):
+                if sub.strip(): result.append(' ' * (base_indent + depth*4) + sub.strip())
+            cur = ''; depth += 1
+        elif not in_str and depth_p == 0 and ch == '}':
+            for sub in _split_stmts(cur):
+                if sub.strip(): result.append(' ' * (base_indent + depth*4) + sub.strip())
+            cur = ''; depth = max(0, depth-1)
+        else: cur += ch
+    for sub in _split_stmts(cur):
+        if sub.strip(): result.append(' ' * base_indent + sub.strip())
+    return result
+
+
+def preprocess(nova_text):
+    """Return list of (indent, stripped_line) ready for the compiler."""
+    lines = []
+    for ln in nova_text.splitlines():
+        stripped = ln.strip()
+        if not stripped or stripped.startswith('//'): continue
+        indent = len(ln) - len(ln.lstrip())
+        clean  = _strip_comment(stripped)
+        if not clean: continue
+        for el in _expand_line(clean, indent):
+            if el.strip():
+                lines.append(el)
+    return lines
+
+
+# ── IL emitter ────────────────────────────────────────────────────────────────
+
+class ILEmitter:
+    def __init__(self, name="NovaProgram"):
+        self.assembly    = name
+        self.fields      = {}          # name -> "int"|"float"|"string"|"string[]"
+        self.cctor       = []
+        self.handlers    = {}          # name -> [il lines]   (ordered via handler_order)
+        self.handler_order = []        # insertion order for handlers
+        self.has_novaui  = False
+        self._lbl        = 0
+        self._arrays     = {}          # name -> [str val, ...] for compile-time use
+
+    def ulabel(self, base):
+        self._lbl += 1
+        return f"{base}_{self._lbl}"
+
+    def add_handler(self, name, body):
+        if name not in self.handlers:
+            self.handler_order.append(name)
+        self.handlers[name] = body
+
+    def get_il(self, main_lines):
+        A = self.assembly
+        il = [".assembly extern mscorlib {}"]
+        if self.has_novaui:
+            il.append(".assembly extern novaui {\n  .ver 1:0:0:0\n}")
+        il += [f".assembly {A} {{}}", f".module {A}.exe\n",
+               f".class public auto ansi beforefieldinit {A} extends [mscorlib]System.Object {{"]
+
+        for n, t in self.fields.items():
+            ft = ("int32"   if t=="int"   else
+                  "float64" if t=="float" else
+                  "string"  if t=="string" else "class [mscorlib]System.String[]")
+            il.append(f"  .field public static {ft} {n}")
+
+        il += ["\n  .method private hidebysig specialname rtspecialname static void .cctor() cil managed {",
+               "    .maxstack 10"]
+        for ln in self.cctor: il.append("    " + ln)
+        il.append("    ret\n  }\n")
+
+        il += ["  .method public hidebysig static void Main() cil managed {",
+               "    .entrypoint", "    .maxstack 8", f"    call void {A}::StartApp()", "    ret\n  }",
+               f"\n  .method public hidebysig static void StartApp() cil managed {{",
+               "    .maxstack 64"]
+        for ln in main_lines: il.append("    " + ln)
+        il.append("    ret\n  }\n")
+
+        for hname in self.handler_order:
+            body = self.handlers[hname]
+            il += [f"  .method public hidebysig static void {hname}() cil managed {{",
+                   "    .maxstack 64"]
+            for ln in body: il.append("    " + ln)
+            il.append("    ret\n  }\n")
+
+        il.append("}")
+        return "\n".join(il)
+
+
+# ── expression parser ─────────────────────────────────────────────────────────
+# Full precedence-climbing parser — matches interpreter feature set:
+#   float literals, float arithmetic, %, chained ops, comparisons,
+#   unary minus, parentheses, variable array index, built-in functions.
+
+_EXPR_TOK = re.compile(
+    r'(?P<FLOAT>\d+\.\d+)'
+    r'|(?P<INT>\d+)'
+    r'|(?P<STR>"[^"]*")'
+    r'|(?P<OP>==|!=|<=|>=|[+\-*/%<>])'
+    r'|(?P<ID>[A-Za-z_]\w*)'
+    r'|(?P<LP>\()|(?P<RP>\))'
+    r'|(?P<LB>\[)|(?P<RB>\])'
+    r'|(?P<CM>,)'
+    r'|(?P<WS>\s+)'
+)
+
+def _etokenise(s):
+    toks = []
+    for m in _EXPR_TOK.finditer(s):
+        k = m.lastgroup
+        if k == 'WS': continue
+        toks.append((k, m.group()))
+    return toks
+
+_PREC_LEVELS = [
+    {'==', '!=', '<', '>', '<=', '>='},   # 0 — comparisons
+    {'+', '-'},                            # 1 — additive
+    {'*', '/', '%'},                       # 2 — multiplicative
+]
+
+def make_parser(emitter, read_file_paths):
+    A = emitter.assembly
+
+    def ensure_int(name):
+        if name not in emitter.fields:
+            emitter.fields[name] = "int"
+            emitter.cctor += ['ldc.i4.0', f'stsfld int32 {A}::{name}']
+
+    def ensure_float(name):
+        if name not in emitter.fields:
+            emitter.fields[name] = "float"
+            emitter.cctor += ['ldc.r8 0.0', f'stsfld float64 {A}::{name}']
+
+    def il_type(t):
+        return ("int32"   if t == "int"   else
+                "float64" if t == "float" else
+                "string"  if t == "string" else "class [mscorlib]System.String[]")
+
+    def to_float(t, il):
+        if t == "int": il.append('conv.r8')
+
+    def to_string(t, il):
+        if t == "int":
+            il += ["box [mscorlib]System.Int32",
+                   "callvirt instance string [mscorlib]System.Object::ToString()"]
+        elif t == "float":
+            il += ["box [mscorlib]System.Double",
+                   "callvirt instance string [mscorlib]System.Object::ToString()"]
+
+    # ── recursive descent over token list ─────────────────────────────────────
+
+    def prec(toks, pos, il, lvl):
+        if lvl >= len(_PREC_LEVELS): return unary(toks, pos, il)
+        ops = _PREC_LEVELS[lvl]
+        lt, pos = prec(toks, pos, il, lvl + 1)
+        while pos < len(toks) and toks[pos][0] == 'OP' and toks[pos][1] in ops:
+            op = toks[pos][1]; pos += 1
+            ril = []; rt, pos = prec(toks, pos, ril, lvl + 1)
+
+            if op in ('==', '!=', '<', '>', '<=', '>='):
+                if lt == "float" or rt == "float":
+                    to_float(lt, il); il += ril; to_float(rt, il)
                 else:
-                    t = inner
-                    if t.startswith("put"):
-                        add_line("Console.WriteLine" + t[3:] + (";" if not t.endswith(";") else ""))
-                    elif t.startswith("have "):
-                        add_line("var " + t[5:] + (";" if not t.endswith(";") else ""))
-                    elif t.startswith("ui_message"):
-                        add_line("MessageBox.Show" + t[10:] + (";" if not t.endswith(";") else ""))
-                    elif t.startswith("pause"):
-                        add_line("Console.ReadKey(true);")
+                    il += ril
+                il += {'=='  : ['ceq'],
+                       '!='  : ['ceq', 'ldc.i4.0', 'ceq'],
+                       '<'   : ['clt'],
+                       '>'   : ['cgt'],
+                       '<='  : ['cgt', 'ldc.i4.0', 'ceq'],
+                       '>='  : ['clt', 'ldc.i4.0', 'ceq']}[op]
+                lt = "int"
+
+            elif op == '+' and (lt == "string" or rt == "string"):
+                to_string(lt, il); il += ril; to_string(rt, il)
+                il.append('call string [mscorlib]System.String::Concat(string, string)')
+                lt = "string"
+
+            elif lt == "float" or rt == "float":
+                to_float(lt, il); il += ril; to_float(rt, il)
+                il.append({'+':'add', '-':'sub', '*':'mul', '/':'div', '%':'rem'}[op])
+                lt = "float"
+
+            else:  # both int
+                if op == '/':
+                    il.append('conv.r8'); to_float("int", ril); il += ril
+                    il.append('div'); lt = "float"
+                elif op == '%':
+                    il += ril; il.append('rem'); lt = "int"
+                else:
+                    il += ril
+                    il.append({'+':'add', '-':'sub', '*':'mul'}[op]); lt = "int"
+
+        return lt, pos
+
+    def unary(toks, pos, il):
+        if pos < len(toks) and toks[pos] == ('OP', '-'):
+            pos += 1; t, pos = primary(toks, pos, il)
+            il.append('neg')
+            return ("float" if t == "float" else "int"), pos
+        return primary(toks, pos, il)
+
+    def primary(toks, pos, il):
+        if pos >= len(toks): il.append('ldc.i4.0'); return "int", pos
+        k, v = toks[pos]
+
+        if k == 'FLOAT': il.append(f'ldc.r8 {v}'); return "float", pos+1
+        if k == 'INT':   il.append(f'ldc.i4 {v}'); return "int",   pos+1
+        if k == 'STR':   il.append(f'ldstr "{escape_il(v[1:-1])}"'); return "string", pos+1
+
+        if k == 'LP':
+            pos += 1; t, pos = prec(toks, pos, il, 0)
+            if pos < len(toks) and toks[pos][0] == 'RP': pos += 1
+            return t, pos
+
+        if k == 'ID':
+            name = v; pos += 1
+
+            # built-in call
+            if pos < len(toks) and toks[pos][0] == 'LP':
+                pos += 1  # consume (
+                def one(out_il=il):
+                    nonlocal pos
+                    ail = []; at, pos = prec(toks, pos, ail, 0)
+                    out_il += ail; return at
+                def close():
+                    nonlocal pos
+                    if pos < len(toks) and toks[pos][0] == 'RP': pos += 1
+                def comma():
+                    nonlocal pos
+                    if pos < len(toks) and toks[pos][0] == 'CM': pos += 1
+
+                if name == 'read_file':
+                    if pos < len(toks) and toks[pos][0] == 'STR':
+                        path = toks[pos][1][1:-1]; pos += 1
+                        read_file_paths.add(path)
+                        il += [f'ldstr "{escape_il(path)}"',
+                               'call string [mscorlib]System.IO.File::ReadAllText(string)']
+                    close(); return "string", pos
+                if name == 'len':
+                    at = one(); close()
+                    if at == "string[]":
+                        il += ['ldlen', 'conv.i4']
                     else:
-                        if not (t.endswith(";") or t.endswith("{") or t.endswith("}")):
-                            t = t + ";"
-                        add_line(t)
-            add_line(f"Application.Run({form_var});")
-            continue
+                        to_string(at, il)
+                        il.append('callvirt instance int32 [mscorlib]System.String::get_Length()')
+                    return "int", pos
+                if name == 'int':
+                    at = one(); close(); to_string(at, il)
+                    il.append('call int32 [mscorlib]System.Int32::Parse(string)')
+                    return "int", pos
+                if name == 'float':
+                    at = one(); close(); to_string(at, il)
+                    il.append('call float64 [mscorlib]System.Double::Parse(string)')
+                    return "float", pos
+                if name == 'str':
+                    at = one(); close(); to_string(at, il)
+                    return "string", pos
+                if name == 'abs':
+                    at = one(); close()
+                    if at == "float":
+                        il.append('call float64 [mscorlib]System.Math::Abs(float64)')
+                    else:
+                        il.append('call int32 [mscorlib]System.Math::Abs(int32)')
+                    return at, pos
+                if name in ('max', 'min'):
+                    at = one(); comma()
+                    bt_il = []; bt, pos = prec(toks, pos, bt_il, 0); close()
+                    if at == "float" or bt == "float":
+                        to_float(at, il); il += bt_il; to_float(bt, il)
+                        il.append(f'call float64 [mscorlib]System.Math::{"Max" if name=="max" else "Min"}(float64,float64)')
+                        return "float", pos
+                    else:
+                        il += bt_il
+                        il.append(f'call int32 [mscorlib]System.Math::{"Max" if name=="max" else "Min"}(int32,int32)')
+                        return "int", pos
+                if name == 'type':
+                    ail = []; at, pos = prec(toks, pos, ail, 0); close()
+                    ts = {"int":"int","float":"float","string":"string","string[]":"array"}.get(at,"string")
+                    il.append(f'ldstr "{ts}"')
+                    return "string", pos
+                # unknown — skip args
+                depth = 1
+                while pos < len(toks) and depth:
+                    if toks[pos][0] == 'LP': depth += 1
+                    elif toks[pos][0] == 'RP': depth -= 1
+                    pos += 1
+                il.append('ldc.i4.0'); return "int", pos
 
-        if line.startswith("have "):
-            add_line("var " + line[5:] + (";" if not line.endswith(";") else ""))
-        elif line.startswith("put"):
-            add_line("Console.WriteLine" + line[3:] + (";" if not line.endswith(";") else ""))
-        elif line.startswith("ui_message"):
-            needs_forms = True
-            add_line("MessageBox.Show" + line[10:] + (";" if not line.endswith(";") else ""))
-        elif line.startswith("pause"):
-            add_line("Console.ReadKey(true);")
-        elif line.startswith("when"):
-            add_line(line.replace("when", "if") + ( " {" if not line.endswith("{") else ""))
-        elif "otherwise" in line:
-            add_line(line.replace("otherwise", "else"))
-        elif line.startswith("while"):
-            add_line(line + ( " {" if not line.endswith("{") else ""))
-        else:
-            t = line
-            if not (t.endswith(";") or t.endswith("{") or t.endswith("}")):
-                t = t + ";"
-            add_line(t)
+            # array index: name[expr]
+            if pos < len(toks) and toks[pos][0] == 'LB':
+                pos += 1
+                idx_il = []; it, pos = prec(toks, pos, idx_il, 0)
+                if pos < len(toks) and toks[pos][0] == 'RB': pos += 1
+                if name not in emitter.fields: emitter.fields[name] = "string[]"
+                il.append(f'ldsfld class [mscorlib]System.String[] {A}::{name}')
+                il += idx_il
+                if it == "float": il.append('conv.i4')
+                il.append('ldelem.ref')
+                return "string", pos
 
-    code_parts = ["using System;", "using System.IO;"]
-    if needs_forms: code_parts.append("using System.Windows.Forms;")
-    if needs_drawing: code_parts.append("using System.Drawing;")
-    code_parts.append(f"\npublic class {classname} {{")
-    code_parts.append("    [STAThread]\n    public static void Main(string[] args) {")
-    if needs_forms:
-        code_parts.append("        Application.EnableVisualStyles();")
-        code_parts.append("        Application.SetCompatibleTextRenderingDefault(false);")
-    code_parts.extend(body_lines)
-    code_parts.append("    }\n}")
-    return "\n".join(code_parts), {"needs_forms": needs_forms, "needs_drawing": needs_drawing, "icon_source_path": icon_source, "icon_basename": icon_basename, "icon_is_png": icon_is_png}
+            # plain variable
+            if name not in emitter.fields:
+                emitter.fields[name] = "string"
+                emitter.cctor += ['ldstr ""', f'stsfld string {A}::{name}']
+            t = emitter.fields[name]
+            il.append(f'ldsfld {il_type(t)} {A}::{name}')
+            return t, pos
 
-class NovaGUI:
+        il.append('ldc.i4.0'); return "int", pos
+
+    # ── public entry point ────────────────────────────────────────────────────
+
+    def parse(expr_str, out):
+        toks = _etokenise(expr_str.strip())
+        if not toks: out.append('ldc.i4.0'); return "int"
+        t, _ = prec(toks, 0, out, 0)
+        return t
+
+    return parse, ensure_int
+
+
+# ── block compiler ────────────────────────────────────────────────────────────
+
+def translate_nova_to_il(nova_text, assembly_name="NovaProgram"):
+    lines           = preprocess(nova_text)
+    emitter         = ILEmitter(assembly_name)
+    read_file_paths = set()
+    handler_counter = [0]
+    parse, ensure_int = make_parser(emitter, read_file_paths)
+    A = emitter.assembly
+
+    def get_indent(line): return len(line) - len(line.lstrip())
+
+    def store(name, t, il):
+        ft = "int32" if t=="int" else "float64" if t=="float" else "string"
+        il.append(f'stsfld {ft} {A}::{name}')
+
+    def coerce_to_string(t, il):
+        if t == "int":
+            il += ["box [mscorlib]System.Int32",
+                   "callvirt instance string [mscorlib]System.Object::ToString()"]
+        elif t == "float":
+            il += ["box [mscorlib]System.Double",
+                   "callvirt instance string [mscorlib]System.Object::ToString()"]
+
+    def compile_block(start, min_indent):
+        il  = []
+        idx = start
+        while idx < len(lines):
+            line   = lines[idx]
+            indent = get_indent(line)
+            if indent < min_indent: break
+            s = line.strip().rstrip('{').rstrip()
+
+            # ── use ──────────────────────────────────────────────────────────
+            if re.match(r'^use\s+\w+', s):
+                if 'novaui' in s: emitter.has_novaui = True
+                idx += 1; continue
+
+            # ── have ─────────────────────────────────────────────────────────
+            m = re.match(r'^have\s+(\w+)\s*=\s*(.+)$', s)
+            if m:
+                name, val = m.group(1), m.group(2).strip()
+                if val.startswith('['):
+                    items = [x.strip().strip('"') for x in val[1:-1].split(',')]
+                    emitter._arrays[name] = items
+                    emitter.fields[name]  = "string[]"
+                    emitter.cctor += [f'ldc.i4 {len(items)}',
+                                      'newarr [mscorlib]System.String']
+                    for i, it in enumerate(items):
+                        emitter.cctor += ['dup', f'ldc.i4 {i}',
+                                          f'ldstr "{escape_il(it)}"', 'stelem.ref']
+                    emitter.cctor.append(f'stsfld class [mscorlib]System.String[] {A}::{name}')
+                elif val.lstrip('-').isdigit():
+                    emitter.fields[name] = "int"
+                    emitter.cctor += [f'ldc.i4 {val}', f'stsfld int32 {A}::{name}']
+                elif re.match(r'^-?\d+\.\d+$', val):
+                    emitter.fields[name] = "float"
+                    emitter.cctor += [f'ldc.r8 {val}', f'stsfld float64 {A}::{name}']
+                elif val.startswith('"') and val.endswith('"'):
+                    emitter.fields[name] = "string"
+                    emitter.cctor += [f'ldstr "{escape_il(val[1:-1])}"',
+                                      f'stsfld string {A}::{name}']
+                else:
+                    t = parse(val, [])
+                    emitter.fields[name] = t
+                    parse(val, emitter.cctor)
+                    store(name, t, emitter.cctor)
+                idx += 1; continue
+
+            # ── ui_window ─────────────────────────────────────────────────────
+            m = re.match(r'^ui_window\s*\(\s*"([^"]+)"\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$', s)
+            if m:
+                emitter.has_novaui = True
+                title, w, h = m.groups()
+                il += [f'ldstr "{escape_il(title)}"', f'ldc.i4 {w}', f'ldc.i4 {h}',
+                       'call void [novaui]NovaUI.Engine::CreateWindow(string, int32, int32)']
+                inner, idx = compile_block(idx+1, indent+1)
+                il += inner + ['call void [novaui]NovaUI.Engine::Run()']
+                continue
+
+            # ── button ────────────────────────────────────────────────────────
+            m = re.match(r'^button\s*\(\s*"([^"]+)"\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$', s)
+            if m:
+                txt, x, y = m.groups()
+                hname = f"H_{handler_counter[0]}"; handler_counter[0] += 1
+                il += [f'ldstr "{escape_il(txt)}"', f'ldc.i4 {x}', f'ldc.i4 {y}',
+                       'ldnull', f'ldftn void {A}::{hname}()',
+                       'newobj instance void [mscorlib]System.Action::.ctor(object, native int)',
+                       'call void [novaui]NovaUI.Engine::AddButton(string, int32, int32, class [mscorlib]System.Action)']
+                inner, idx = compile_block(idx+1, indent+1)
+                emitter.add_handler(hname, inner)
+                continue
+
+            # ── button_grid(labelsArr, xsArr, ysArr, w, h, "Prefix") ──────────
+            m = re.match(r'^button_grid\s*\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]+)"\s*\)$', s)
+            if m:
+                lv, xv, yv, bw, bh, prefix = m.groups()
+                labels = emitter._arrays.get(lv, [])
+                xs     = emitter._arrays.get(xv, [])
+                ys     = emitter._arrays.get(yv, [])
+                for i, lbl in enumerate(labels):
+                    hname = f"{prefix}_{i}"
+                    il += [f'ldstr "{escape_il(lbl)}"',
+                           f'ldc.i4 {xs[i]}', f'ldc.i4 {ys[i]}',
+                           'ldnull', f'ldftn void {A}::{hname}()',
+                           'newobj instance void [mscorlib]System.Action::.ctor(object, native int)',
+                           'call void [novaui]NovaUI.Engine::AddButton(string, int32, int32, class [mscorlib]System.Action)']
+                    if hname not in emitter.handlers:
+                        emitter.add_handler(hname, [])   # placeholder, filled by on_button
+                idx += 1; continue
+
+            # ── on_button("Prefix", N) ────────────────────────────────────────
+            m = re.match(r'^on_button\s*\(\s*"([^"]+)"\s*,\s*(\d+)\s*\)$', s)
+            if m:
+                prefix, bidx = m.groups()
+                hname = f"{prefix}_{bidx}"
+                inner, idx = compile_block(idx+1, indent+1)
+                emitter.add_handler(hname, inner)
+                continue
+
+            # ── named_label ───────────────────────────────────────────────────
+            m = re.match(r'^named_label\s*\(\s*"([^"]+)"\s*,\s*"([^"]*)"\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$', s)
+            if m:
+                lid, txt, x, y, w, h = m.groups()
+                il += [f'ldstr "{escape_il(lid)}"', f'ldstr "{escape_il(txt)}"',
+                       f'ldc.i4 {x}', f'ldc.i4 {y}', f'ldc.i4 {w}', f'ldc.i4 {h}',
+                       'call void [novaui]NovaUI.Engine::AddNamedLabel(string, string, int32, int32, int32, int32)']
+                idx += 1; continue
+
+            # ── set_label ─────────────────────────────────────────────────────
+            m = re.match(r'^set_label\s*\(\s*"([^"]+)"\s*,\s*(.+)\s*\)$', s)
+            if m:
+                lid, expr = m.group(1), m.group(2).strip()
+                il.append(f'ldstr "{escape_il(lid)}"')
+                t = parse(expr, il)
+                coerce_to_string(t, il)
+                il.append('call void [novaui]NovaUI.Engine::UpdateLabel(string, string)')
+                idx += 1; continue
+
+            # ── label (3 or 5 args) ───────────────────────────────────────────
+            m3 = re.match(r'^label\s*\(\s*"([^"]+)"\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$', s)
+            if m3:
+                txt, x, y = m3.groups()
+                il += [f'ldstr "{escape_il(txt)}"', f'ldc.i4 {x}', f'ldc.i4 {y}',
+                       'call void [novaui]NovaUI.Engine::AddLabel(string, int32, int32)']
+                idx += 1; continue
+            m5 = re.match(r'^label\s*\(\s*"([^"]+)"\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$', s)
+            if m5:
+                txt, x, y, w, h = m5.groups()
+                il += [f'ldstr "{escape_il(txt)}"', f'ldc.i4 {x}', f'ldc.i4 {y}',
+                       f'ldc.i4 {w}', f'ldc.i4 {h}',
+                       'call void [novaui]NovaUI.Engine::AddLabel(string, int32, int32, int32, int32)']
+                idx += 1; continue
+
+            # ── clicked / otherwise (block openers, just recurse) ─────────────
+            if s.startswith('clicked'):
+                inner, idx = compile_block(idx+1, indent+1)
+                il += inner; continue
+            if s == 'otherwise':
+                # handled inside when
+                break
+
+            # ── when (full expression condition) ─────────────────────────────
+            m = re.match(r'^when\s*\((.+)\)$', s)
+            if m:
+                else_l = emitter.ulabel("ELSE"); end_l = emitter.ulabel("ENDIF")
+                parse(m.group(1).strip(), il)
+                il.append(f'brfalse {else_l}')
+                body, idx = compile_block(idx+1, indent+1)
+                il += body + [f'br {end_l}', f'{else_l}:']
+                if idx < len(lines) and lines[idx].strip().rstrip('{').rstrip() == 'otherwise':
+                    ob, idx = compile_block(idx+1, indent+1)
+                    il += ob
+                il.append(f'{end_l}:'); continue
+
+            # ── while (full expression condition) ─────────────────────────────
+            m = re.match(r'^while\s*\((.+)\)$', s)
+            if m:
+                lp = emitter.ulabel("LP"); le = emitter.ulabel("LPEND")
+                il.append(f'{lp}:')
+                parse(m.group(1).strip(), il)
+                il.append(f'brfalse {le}')
+                body, idx = compile_block(idx+1, indent+1)
+                il += body + [f'br {lp}', f'{le}:']; continue
+
+            # ── repeat N ──────────────────────────────────────────────────────
+            m = re.match(r'^repeat\s+(.+)$', s)
+            if m:
+                ctr = emitter.ulabel("RC").replace("RC_", "_rc")
+                lp  = emitter.ulabel("RPL"); le = emitter.ulabel("RPE")
+                if ctr not in emitter.fields:
+                    emitter.fields[ctr] = "int"
+                    emitter.cctor += ['ldc.i4.0', f'stsfld int32 {A}::{ctr}']
+                parse(m.group(1).strip(), il)
+                il.append(f'stsfld int32 {A}::{ctr}')
+                il.append(f'{lp}:')
+                il += [f'ldsfld int32 {A}::{ctr}', f'brfalse {le}',
+                       f'ldsfld int32 {A}::{ctr}', 'ldc.i4.1', 'sub',
+                       f'stsfld int32 {A}::{ctr}']
+                body, idx = compile_block(idx+1, indent+1)
+                il += body + [f'br {lp}', f'{le}:']; continue
+
+            # ── break (leave innermost loop — emitted as br to nearest loop end)
+            # In IL we can't easily resolve the enclosing label here, so we use
+            # a runtime trick: set all active repeat counters to 0 is complex;
+            # instead we emit a leave.s placeholder comment so code still compiles.
+            # For while loops, break is best expressed as setting the condition false
+            # via a dedicated flag field per loop.  Simple approach: skip with note.
+            if s == 'break':
+                # Emit nothing harmful — the loop body will just finish naturally.
+                # Full break support in IL requires scope tracking; omitted for now.
+                idx += 1; continue
+
+            # ── put(expr) ─────────────────────────────────────────────────────
+            m = re.match(r'^put\s*\(\s*(.+)\s*\)$', s)
+            if m:
+                arg = m.group(1).strip()
+                if arg in emitter.fields and emitter.fields[arg] == "string[]":
+                    il += ['ldstr ", "', f'ldsfld class [mscorlib]System.String[] {A}::{arg}',
+                           'call string [mscorlib]System.String::Join(string, string[])']
+                else:
+                    t = parse(arg, il); coerce_to_string(t, il)
+                il.append('call void [mscorlib]System.Console::WriteLine(string)')
+                idx += 1; continue
+
+            # ── ui_message(expr) ──────────────────────────────────────────────
+            m = re.match(r'^ui_message\s*\(\s*(.+)\s*\)$', s)
+            if m:
+                t = parse(m.group(1).strip(), il); coerce_to_string(t, il)
+                il.append('call void [novaui]NovaUI.Engine::ShowMessage(string)')
+                idx += 1; continue
+
+            # ── icon ──────────────────────────────────────────────────────────
+            m = re.match(r'^icon\s*\(\s*"([^"]+)"\s*\)$', s)
+            if m:
+                il += [f'ldstr "{escape_il(m.group(1))}"',
+                       'call void [novaui]NovaUI.Engine::SetIcon(string)']
+                idx += 1; continue
+
+            # ── write_file / read_file ────────────────────────────────────────
+            m = re.match(r'^write_file\s*\(\s*"([^"]+)"\s*,\s*(.+)\s*\)$', s)
+            if m:
+                il.append(f'ldstr "{escape_il(m.group(1))}"')
+                parse(m.group(2).strip(), il)
+                il.append('call void [mscorlib]System.IO.File::WriteAllText(string, string)')
+                idx += 1; continue
+
+            m = re.match(r'^(\w+)\s*=\s*read_file\s*\(\s*"([^"]+)"\s*\)$', s)
+            if m:
+                name, path = m.groups(); read_file_paths.add(path)
+                if name not in emitter.fields: emitter.fields[name] = "string"
+                il += [f'ldstr "{escape_il(path)}"',
+                       'call string [mscorlib]System.IO.File::ReadAllText(string)',
+                       f'stsfld string {A}::{name}']
+                idx += 1; continue
+
+            # ── App.Exit / pause ──────────────────────────────────────────────
+            if s in ('App.Exit', 'App.Exit()', 'ExitApp', 'ExitApp()'):
+                il.append('call void [novaui]NovaUI.Engine::ExitApp()')
+                idx += 1; continue
+            if s in ('pause', 'pause()'):
+                il += ['call valuetype [mscorlib]System.ConsoleKeyInfo [mscorlib]System.Console::ReadKey()', 'pop']
+                idx += 1; continue
+
+            # ── array element assignment  NAME[expr] = expr ───────────────────
+            m = re.match(r'^([A-Za-z_]\w*)\s*\[(.+?)\]\s*=\s*(.+)$', s)
+            if m:
+                aname, idx_expr, val_expr = m.group(1), m.group(2), m.group(3).strip()
+                if aname not in emitter.fields: emitter.fields[aname] = "string[]"
+                il.append(f'ldsfld class [mscorlib]System.String[] {A}::{aname}')
+                it = parse(idx_expr.strip(), il)
+                if it == "float": il.append('conv.i4')
+                vt = parse(val_expr, il); coerce_to_string(vt, il)
+                il.append('stelem.ref')
+                idx += 1; continue
+
+            # ── generic assignment  var = expr ────────────────────────────────
+            m = re.match(r'^(\w+)\s*=\s*(.+)$', s)
+            if m:
+                name, expr = m.group(1), m.group(2).strip()
+                if re.match(r'^-?\d+\.\d+$', expr):
+                    if name not in emitter.fields:
+                        emitter.fields[name] = "float"
+                        emitter.cctor += ['ldc.r8 0.0', f'stsfld float64 {A}::{name}']
+                    il += [f'ldc.r8 {expr}', f'stsfld float64 {A}::{name}']
+                elif expr.lstrip('-').isdigit():
+                    ensure_int(name)
+                    il += [f'ldc.i4 {expr}', f'stsfld int32 {A}::{name}']
+                else:
+                    t = parse(expr, il)
+                    if name not in emitter.fields:
+                        emitter.fields[name] = t
+                        if   t == "int":   emitter.cctor += ['ldc.i4.0',   f'stsfld int32   {A}::{name}']
+                        elif t == "float": emitter.cctor += ['ldc.r8 0.0', f'stsfld float64 {A}::{name}']
+                        else:              emitter.cctor += ['ldstr ""',    f'stsfld string  {A}::{name}']
+                    store(name, t, il)
+                idx += 1; continue
+
+            idx += 1   # unrecognised – skip
+
+        return il, idx
+
+    main_il, _ = compile_block(0, 0)
+    emitter._main_lines = main_il
+    return emitter, read_file_paths
+
+
+# ── compiler GUI ──────────────────────────────────────────────────────────────
+
+class NovaCompilerApp:
     def __init__(self, root):
         self.root = root
-        root.title("Nova Compiler")
-        root.geometry("900x700")
-        root.configure(bg="#1e1e1e")
-        style = ttk.Style(root)
-        style.theme_use('clam')
-        style.configure("TLabel", background="#1e1e1e", foreground="#d4d4d4")
-        style.configure("TButton", background="#3c3c3c", foreground="#d4d4d4")
-        style.map("TButton", background=[('active', '#555555')], foreground=[('active', '#ffffff')])
-        style.configure("TEntry", fieldbackground="#252526", foreground="#d4d4d4")
-        style.configure("TFrame", background="#1e1e1e")
-        style.configure("TLabelFrame", background="#1e1e1e", foreground="#d4d4d4")
-        style.configure("TRadiobutton", background="#1e1e1e", foreground="#d4d4d4")
-        self.script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.source_dir_var = tk.StringVar(value=self.script_dir)
-        self.csc_path_var = tk.StringVar(value="")
-        self.extra_refs_var = tk.StringVar(value="")
-        left = ttk.Frame(root, width=320)
-        left.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=8)
-        right = ttk.Frame(root)
-        right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=8, pady=8)
-        ttk.Label(left, text="Source Folder:").pack(anchor="w")
-        src_row = ttk.Frame(left)
-        src_row.pack(fill=tk.X, pady=(4, 8))
-        ttk.Entry(src_row, textvariable=self.source_dir_var, width=36).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(src_row, text="...", command=self.browse_source).pack(side=tk.LEFT)
-        ttk.Label(left, text=".nova files found:").pack(anchor="w", pady=(6, 0))
-        self.listbox = tk.Listbox(left, selectmode=tk.EXTENDED, width=46, height=28, bg="#252526", fg="#d4d4d4", borderwidth=0, highlightthickness=1, highlightbackground="#3c3c3c", selectbackground="#0e639c")
-        self.listbox.pack(pady=6)
-        ttk.Button(left, text="Refresh List", command=self.refresh_list).pack(fill=tk.X)
-        opts = ttk.LabelFrame(right, text="Compile Settings", padding=(8, 8))
-        opts.pack(fill=tk.X)
-        self.target_var = tk.StringVar(value="exe")
-        ttk.Radiobutton(opts, text="Standalone App (.exe)", variable=self.target_var, value="exe").grid(row=0, column=0, sticky="w")
-        ttk.Radiobutton(opts, text="Standard Library (.dll)", variable=self.target_var, value="dll").grid(row=1, column=0, sticky="w")
-        ttk.Label(opts, text="Output Class/Name:").grid(row=0, column=1, sticky="w", padx=(12, 2))
-        self.classname_var = tk.StringVar(value="NovaProgram")
-        ttk.Entry(opts, textvariable=self.classname_var, width=36).grid(row=0, column=2, sticky="w")
-        ttk.Label(opts, text="csc.exe path (optional):").grid(row=1, column=1, sticky="w", padx=(12, 2))
-        ttk.Entry(opts, textvariable=self.csc_path_var, width=36).grid(row=1, column=2, sticky="w")
-        ttk.Button(opts, text="Browse", command=self.browse_csc).grid(row=1, column=3, sticky="w", padx=6)
-        ttk.Label(opts, text="Extra references (semicolon separated):").grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 0))
-        ttk.Entry(opts, textvariable=self.extra_refs_var, width=80).grid(row=3, column=0, columnspan=4, sticky="w")
-        btn_row = ttk.Frame(right)
-        btn_row.pack(fill=tk.X, pady=8)
-        ttk.Button(btn_row, text="COMPILE SELECTED", command=self.on_compile).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(btn_row, text="Open Folder", command=self.open_output).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(btn_row, text="Show Generated C#", command=self.show_last_cs).pack(side=tk.LEFT)
-        self.console = tk.Text(right, bg="black", fg="#00ff00", font=("Consolas", 10), borderwidth=0)
-        self.console.pack(fill=tk.BOTH, expand=True)
-        self._last_generated_cs = None
-        self.refresh_list()
+        root.title("Nova Compiler"); root.geometry("900x720")
+        self.script_dir   = os.path.dirname(os.path.abspath(__file__))
+        self.src_dir      = tk.StringVar(value=os.getcwd())
+        self.out_name     = tk.StringVar(value="NovaProgram")
+        self.ilasm_path   = tk.StringVar(value=find_ilasm_path() or "")
+        self.compile_type = tk.StringVar(value="exe")
+        self.last_il      = ""
+        self.BG = "#1e1e1e"; self.FG = "#ffffff"
+        self.BTN = "#333333"; self.EBG = "#2d2d2d"
+        root.configure(bg=self.BG)
+        self._build_ui(); self._refresh()
 
-    def browse_source(self):
-        d = filedialog.askdirectory()
-        if d: self.source_dir_var.set(d); self.refresh_list()
+    def _build_ui(self):
+        top = tk.Frame(self.root, padx=6, pady=6, bg=self.BG); top.pack(fill="x")
+        tk.Label(top, text="Source Folder:", bg=self.BG, fg=self.FG).pack(side="left")
+        tk.Entry(top, textvariable=self.src_dir, width=60, bg=self.EBG, fg=self.FG,
+                 insertbackground="white").pack(side="left", padx=5)
+        tk.Button(top, text="Browse", command=self._browse, bg=self.BTN, fg=self.FG).pack(side="left")
 
-    def refresh_list(self):
+        mid  = tk.Frame(self.root, padx=8, bg=self.BG); mid.pack(fill="both", expand=True)
+        left = tk.Frame(mid, bg=self.BG); left.pack(side="left", fill="both", expand=True)
+        tk.Label(left, text=".nova files:", bg=self.BG, fg=self.FG).pack(anchor="w")
+        self.listbox = tk.Listbox(left, bg=self.EBG, fg=self.FG, selectbackground="#444")
+        self.listbox.pack(fill="both", expand=True)
+        tk.Button(left, text="Refresh", command=self._refresh, bg=self.BTN, fg=self.FG).pack(fill="x", pady=6)
+
+        right = tk.Frame(mid, width=320, padx=8, bg=self.BG); right.pack(side="right", fill="y")
+        tk.Label(right, text="Compile Settings", font=("Arial",10,"bold"), bg=self.BG, fg=self.FG).pack(anchor="w")
+        for txt, val in [("Standalone App (.exe)","exe"),("Library (.dll)","dll")]:
+            tk.Radiobutton(right, text=txt, variable=self.compile_type, value=val,
+                           bg=self.BG, fg=self.FG, selectcolor=self.BG).pack(anchor="w")
+        for lbl, var in [("\nOutput Base Name:", self.out_name), ("\nilasm path (optional):", self.ilasm_path)]:
+            tk.Label(right, text=lbl, bg=self.BG, fg=self.FG).pack(anchor="w")
+            tk.Entry(right, textvariable=var, bg=self.EBG, fg=self.FG,
+                     insertbackground="white").pack(fill="x", pady=5)
+        tk.Button(right, text="Compile .nova Files", command=self._compile,
+                  height=2, bg="#0ba300", fg="white").pack(fill="x", pady=10)
+        tk.Button(right, text="Open Output Folder", command=self._open_out,
+                  bg=self.BTN, fg=self.FG).pack(fill="x", pady=2)
+        tk.Button(right, text="Show Generated IL", command=self._show_il,
+                  bg=self.BTN, fg=self.FG).pack(fill="x", pady=2)
+        self.log = scrolledtext.ScrolledText(self.root, height=18, bg="black", fg="#00ff00")
+        self.log.pack(fill="both", padx=8, pady=8)
+
+    def _browse(self):
+        d = filedialog.askdirectory(initialdir=self.src_dir.get())
+        if d: self.src_dir.set(d); self._refresh()
+
+    def _refresh(self):
         self.listbox.delete(0, tk.END)
-        path = self.source_dir_var.get()
-        if os.path.exists(path):
-            for f in sorted([f for f in os.listdir(path) if f.endswith(".nova")]): self.listbox.insert(tk.END, f)
+        try:
+            for f in os.listdir(self.src_dir.get()):
+                if f.lower().endswith(".nova"): self.listbox.insert(tk.END, f)
+        except Exception as e: self.log.insert(tk.END, f"Error: {e}\n")
 
-    def open_output(self):
-        folder = self.source_dir_var.get()
-        if os.name == 'nt': os.startfile(folder)
-        else: subprocess.run(['xdg-open' if os.name != 'posix' else 'open', folder])
+    def _show_il(self):
+        if not self.last_il: return
+        top = tk.Toplevel(self.root); top.title("Generated IL"); top.configure(bg=self.BG)
+        txt = scrolledtext.ScrolledText(top, bg=self.BG, fg=self.FG); txt.pack(fill="both", expand=True)
+        txt.insert("1.0", self.last_il)
 
-    def browse_csc(self):
-        p = filedialog.askopenfilename(title="Select csc.exe")
-        if p: self.csc_path_var.set(p)
+    def _open_out(self):
+        try: os.startfile(self.src_dir.get())
+        except Exception as e: self.log.insert(tk.END, f"Error: {e}\n")
 
-    def show_last_cs(self):
-        if not self._last_generated_cs: return
-        win = tk.Toplevel(self.root); win.title("Generated C#")
-        txt = tk.Text(win, bg="#1e1e1e", fg="#d4d4d4"); txt.pack(fill=tk.BOTH, expand=True)
-        txt.insert(tk.END, self._last_generated_cs)
-
-    def on_compile(self):
+    def _compile(self):
         sel = self.listbox.curselection()
-        if not sel: return
-        csc_path = self.find_csc(self.csc_path_var.get().strip() or None)
-        if not csc_path: messagebox.showerror("Error", "csc.exe not found."); return
-        for i in sel:
-            filename = self.listbox.get(i)
-            full_path = os.path.join(self.source_dir_var.get(), filename)
-            with open(full_path, "r", encoding="utf-8") as f: src = f.read()
-            csharp_code, meta = translate_nova_to_csharp(src, self.classname_var.get() or "NovaProgram")
-            self._last_generated_cs = csharp_code
-            cs_temp = os.path.join(self.source_dir_var.get(), "temp_build.cs")
-            with open(cs_temp, "w", encoding="utf-8") as f: f.write(csharp_code)
-            out_name = filename.replace(".nova", ".dll" if self.target_var.get() == "dll" else ".exe")
-            out_path = os.path.join(self.source_dir_var.get(), out_name)
-            if meta.get("icon_source_path"):
-                src_icon = os.path.join(self.source_dir_var.get(), meta["icon_source_path"]) if not os.path.isabs(meta["icon_source_path"]) else meta["icon_source_path"]
-                if os.path.exists(src_icon):
-                    dst = os.path.join(self.source_dir_var.get(), meta["icon_basename"])
-                    if meta.get("icon_is_png") and PIL_AVAILABLE: convert_png_to_ico(src_icon, dst)
-                    else: shutil.copyfile(src_icon, dst)
-            t_flag = "/target:library" if self.target_var.get() == "dll" else ("/target:winexe" if meta.get("needs_forms") else "/target:exe")
-            cmd = [csc_path, t_flag, f"/out:{out_path}", cs_temp]
-            refs = []
-            if meta.get("needs_forms"): refs.append("System.Windows.Forms.dll")
-            if meta.get("needs_drawing"): refs.append("System.Drawing.dll")
-            if refs: cmd.insert(2, f"/reference:{';'.join(refs)}")
-            extra = self.extra_refs_var.get().strip()
-            if extra: cmd.append(f"/reference:{extra}")
-            self.console.insert(tk.END, f"Compiling {filename}...\n")
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-            if proc.returncode == 0: self.console.insert(tk.END, f"SUCCESS: {out_name}\n")
-            else: self.console.insert(tk.END, f"FAILED:\n{proc.stdout}\n{proc.stderr}\n")
-            if os.path.exists(cs_temp): os.remove(cs_temp)
+        if not sel:
+            messagebox.showwarning("No file selected", "Please select a .nova file."); return
+        fname = self.listbox.get(sel[0])
+        with open(os.path.join(self.src_dir.get(), fname), encoding="utf-8") as f: src = f.read()
+        out_base = self.out_name.get().strip() or "NovaProgram"
+        emitter, read_paths = translate_nova_to_il(src, out_base)
+        self.last_il = emitter.get_il(emitter._main_lines)
+        out_folder = os.path.abspath(self.src_dir.get())
+        il_path = os.path.join(out_folder, out_base + ".il")
+        with open(il_path, "w", encoding="utf-8") as f: f.write(self.last_il)
+        for p in read_paths:
+            tp = os.path.join(out_folder, p)
+            if not os.path.exists(tp):
+                if os.path.dirname(p): os.makedirs(os.path.join(out_folder, os.path.dirname(p)), exist_ok=True)
+                open(tp, "w").close()
+        if emitter.has_novaui:
+            dll_src = next((p for p in [os.path.join(out_folder,"novaui.dll"),
+                                        os.path.join(self.script_dir,"novaui.dll"),
+                                        os.path.join(os.getcwd(),"novaui.dll")] if os.path.isfile(p)), None)
+            dst = os.path.join(out_folder, "novaui.dll")
+            if dll_src and os.path.abspath(dll_src) != os.path.abspath(dst):
+                try: shutil.copy2(dll_src, dst); self.log.insert(tk.END, f"Copied novaui.dll\n")
+                except Exception as e: self.log.insert(tk.END, f"Warning: {e}\n")
+            elif not dll_src:
+                self.log.insert(tk.END, "Warning: novaui.dll not found.\n")
+        ilasm = self.ilasm_path.get() or find_ilasm_path()
+        if not ilasm: self.log.insert(tk.END, "Error: ilasm.exe not found.\n"); return
+        ext      = ".exe" if self.compile_type.get() == "exe" else ".dll"
+        out_file = os.path.join(out_folder, out_base + ext)
+        cmd      = [ilasm, il_path, f"/{self.compile_type.get()}", f"/output={out_file}"]
+        self.log.insert(tk.END, f"Running: {' '.join(cmd)}\n")
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, cwd=out_folder)
+            self.log.insert(tk.END, p.stdout + p.stderr + "\n")
+        except Exception as ex: self.log.insert(tk.END, f"Error: {ex}\n")
+        self.log.insert(tk.END, "Done.\n"); self.log.see(tk.END)
 
-    def find_csc(self, custom=None):
-        if custom and os.path.exists(custom): return custom
-        for c in [shutil.which("csc"), r"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe", r"C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe"]:
-            if c and os.path.exists(c): return c
-        return None
 
 if __name__ == "__main__":
-    root = tk.Tk(); app = NovaGUI(root); root.mainloop()
+    root = tk.Tk()
+    NovaCompilerApp(root)
+    root.mainloop()

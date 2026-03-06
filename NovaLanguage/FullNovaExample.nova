@@ -1,38 +1,67 @@
-// Nova Language Feature Showcase
-// This script demonstrates variables, console output, loops, and GUI components.
+// Nova Language Full Example
+// Demonstrates arrays, file I/O, clicked() event handlers, and GUI controls.
 
-// Initialize global application data
+// Use the UI tool
+use novaui
+
+// --- Basic startup message ---
 have appName = "Nova Showcase"
 have version = 1.2
 put("Initializing " + appName + " v" + version)
 
-// Create the main application window
-ui_window("Nova Feature Demo", 450, 350) {
-    // Set the window icon (requires .ico for title bar or .png for internal logo)
-    set_icon("NovaLanguage/NovaLanguageIcon.ico")
+// --- Simple array usage ---
+have fruits = ["apple", "banana", "cherry"]
+put("Primary fruit: " + fruits[0])    // indexing
+put(fruits)                           // print entire array
 
-    // Display a header label
-    label("Nova Language: Full Feature Demonstration", 20, 20, 400, 25)
+// --- File I/O demo ---
+// write the fruit list to a file (stringify using join-like behavior)
+write_file("fruits.txt", "apple,banana,cherry")
+have fileContents = read_file("fruits.txt")
+put("Read back from file: " + fileContents)
 
-    // Interactive button with a popup message
+// --- GUI window with events ---
+ui_window("Nova Feature Demo", 480, 360) {
+    // set icon (keeps , compiler will convert png -> ico if needed)
+    icon("NovaLanguage/NovaLanguageIcon.ico")
+
+    label("Nova Language: Full Feature Demonstration", 20, 16, 420, 28)
+
+    // button with an explicit clicked() handler
     button("Show Message", 20, 60) {
-        ui_message("This is a native UI message triggered from Nova code.")
+        clicked() {
+            ui_message("This message came from the clicked() handler.")
+        }
     }
 
-    // Logic for tracking state within the GUI
+    // button which increments a counter (shows changed state)
     have clickCount = 0
-    button("Increment Counter", 20, 100) {
-        clickCount = clickCount + 1
-        ui_message("Current count: " + clickCount)
+    button("Increment Counter", 20, 110) {
+        clicked() {
+            clickCount = clickCount + 1
+            ui_message("Button pressed. Count = " + clickCount)
+            // also append the count to a log file
+            write_file("click_log.txt", "Clicked: " + clickCount)
+        }
     }
 
-    // Button to safely terminate the application
-    button("Close App", 20, 140) {
-        Application.Exit()
+    // demonstrate reading the file and showing its content
+    button("Show File", 20, 160) {
+        clicked() {
+            have content = read_file("fruits.txt")
+            ui_message("fruits.txt contains: " + content)
+        }
+    }
+
+    // button to close app
+    button("Close App", 20, 210) {
+        clicked() {
+            App.Exit()
+        }
     }
 }
 
-// Demonstrate control flow using a while loop
+// --- Loops and conditionals (console side) ---
 put("Starting countdown sequence...")
 have timer = 5
 while (timer > 0) {
@@ -40,12 +69,11 @@ while (timer > 0) {
     timer = timer - 1
 }
 
-// Conditional logic demonstration
 when (timer == 0) {
     put("Sequence complete.")
 } otherwise {
     put("Sequence interrupted.")
 }
 
-// Prevent the console from closing immediately after execution
+// prevent console from closing immediately
 pause()
