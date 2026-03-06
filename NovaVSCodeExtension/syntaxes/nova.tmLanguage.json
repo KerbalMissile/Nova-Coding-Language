@@ -20,15 +20,19 @@
     },
     {
       "name": "keyword.control.nova",
-      "match": "\\b(when|otherwise|while|pause)\\b"
+      "match": "\\b(when|otherwise|while|pause|if|else|for|return|break|continue)\\b"
     },
     {
-      "name": "keyword.other.nova",
-      "match": "\\b(have|put)\\b"
+      "name": "keyword.declaration.nova",
+      "match": "\\b(have|put|write_file|read_file|ui_window|ui_message|icon|label|button|clicked|App\\.Exit|Application\\.Exit)\\b"
     },
     {
       "name": "entity.name.function.nova",
-      "match": "\\b(ui_window|ui_message|set_icon|label|button|Application\\.Exit)\\b"
+      "match": "\\b(ui_window|ui_message|set_icon|label|button|clicked|App\\.Exit|Application\\.Exit)\\b"
+    },
+    {
+      "name": "variable.language.nova",
+      "match": "\\b(this|self|super)\\b"
     },
     {
       "name": "constant.numeric.nova",
@@ -36,7 +40,23 @@
     },
     {
       "name": "keyword.operator.nova",
-      "match": "(\\+|\\-|\\*|\\/|\\=|\\=\\=|\\>|\\<)"
+      "match": "(\\+|\\-|\\*|\\/|\\=|\\=\\=|\\>|\\<|\\!\\=|\\>=|<=|\\+=|\\-=|\\*=|\\/=)"
+    },
+    {
+      "name": "punctuation.separator.nova",
+      "match": "[,;]"
+    },
+    {
+      "name": "punctuation.bracket.nova",
+      "match": "[\\[\\]\\{\\}\\(\\)]"
+    },
+    {
+      "name": "constant.language.boolean.nova",
+      "match": "\\b(true|false)\\b"
+    },
+    {
+      "name": "constant.language.null.nova",
+      "match": "\\b(null|nil)\\b"
     }
   ]
 }

@@ -11,6 +11,10 @@
     "Programming Languages"
   ],
   "icon": "NovaLanguageIcon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KerbalMissile/Nova-Coding-Language.git"
+  },
   "contributes": {
     "languages": [
       {
