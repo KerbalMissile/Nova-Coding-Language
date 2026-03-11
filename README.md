@@ -22,8 +22,6 @@ Nova is simple but powerful and a beginner-friendly coding language made by me (
 
 - **Python 3.7+** required to run the Nova compiler GUI (`nova_compiler.py`).
 - **.NET SDK or .NET Framework** required to compile the generated C# code. Make sure that `csc.exe` is installed and accessible.
-- **Pillow** Python Library for the automatic PNG to ICO conversion, not working so it is a soft dependency for now. You can install it using `pip install pillow`
-
 
 ### Running The Compiler
 
@@ -76,6 +74,7 @@ For questions or help, open an issue on the GitHub repo or reach out to me, Kerb
 
 
 Thank you for looking at or maybe even trying out Nova!
+
 
 
 
