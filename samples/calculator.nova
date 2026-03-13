@@ -1,0 +1,40 @@
+use novaui
+
+have numA = 0  have numB = 0  have iRes = 0  have sRes = "0"  have hasA = 0  have op = 0
+
+have lbl = ["7","8","9","4","5","6","1","2","3","0"]
+have bx  = ["10","70","130","10","70","130","10","70","130","70"]
+have by  = ["60","60","60","110","110","110","160","160","160","210"]
+
+colors(Nova) {}
+
+ui_window("Nova Calculator", 260, 310) {
+    icon("NovaLanguageIcon.ico")
+    named_label("out", "0", 10, 10, 235, 36)
+    button_grid(lbl, bx, by, 50, 40, "D")
+    button("+", 190, 60)  { clicked() { op = 1  hasA = 1  numB = 0  set_label("out", "0") } }
+    button("-", 190, 110) { clicked() { op = 2  hasA = 1  numB = 0  set_label("out", "0") } }
+    button("*", 190, 160) { clicked() { op = 3  hasA = 1  numB = 0  set_label("out", "0") } }
+    button("/", 190, 210) { clicked() { op = 4  hasA = 1  numB = 0  set_label("out", "0") } }
+    button("=", 10, 260) {
+        clicked() {
+            when (op == 1) { iRes = numA + numB  set_label("out", iRes)  numA = iRes }
+            when (op == 2) { iRes = numA - numB  set_label("out", iRes)  numA = iRes }
+            when (op == 3) { iRes = numA * numB  set_label("out", iRes)  numA = iRes }
+            when (op == 4) { sRes = numA / numB  set_label("out", sRes)  numA = 0 }
+            numB = 0  hasA = 0  op = 0
+        }
+    }
+    button("C", 130, 260) { clicked() { numA = 0  numB = 0  iRes = 0  hasA = 0  op = 0  set_label("out", "0") } }
+}
+
+on_button("D", 0) { when (hasA==0) { numA = numA*10  numA = numA+7  set_label("out",numA) } otherwise { numB = numB*10  numB = numB+7  set_label("out",numB) } }
+on_button("D", 1) { when (hasA==0) { numA = numA*10  numA = numA+8  set_label("out",numA) } otherwise { numB = numB*10  numB = numB+8  set_label("out",numB) } }
+on_button("D", 2) { when (hasA==0) { numA = numA*10  numA = numA+9  set_label("out",numA) } otherwise { numB = numB*10  numB = numB+9  set_label("out",numB) } }
+on_button("D", 3) { when (hasA==0) { numA = numA*10  numA = numA+4  set_label("out",numA) } otherwise { numB = numB*10  numB = numB+4  set_label("out",numB) } }
+on_button("D", 4) { when (hasA==0) { numA = numA*10  numA = numA+5  set_label("out",numA) } otherwise { numB = numB*10  numB = numB+5  set_label("out",numB) } }
+on_button("D", 5) { when (hasA==0) { numA = numA*10  numA = numA+6  set_label("out",numA) } otherwise { numB = numB*10  numB = numB+6  set_label("out",numB) } }
+on_button("D", 6) { when (hasA==0) { numA = numA*10  numA = numA+1  set_label("out",numA) } otherwise { numB = numB*10  numB = numB+1  set_label("out",numB) } }
+on_button("D", 7) { when (hasA==0) { numA = numA*10  numA = numA+2  set_label("out",numA) } otherwise { numB = numB*10  numB = numB+2  set_label("out",numB) } }
+on_button("D", 8) { when (hasA==0) { numA = numA*10  numA = numA+3  set_label("out",numA) } otherwise { numB = numB*10  numB = numB+3  set_label("out",numB) } }
+on_button("D", 9) { when (hasA==0) { numA = numA*10  set_label("out",numA) } otherwise { numB = numB*10  set_label("out",numB) } }

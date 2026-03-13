@@ -1,0 +1,11 @@
+use novaui
+
+colors(Nova) {}
+
+ui_window("Input Test", 300, 200) {
+    icon("NovaLanguageIcon.ico")
+    named_label("Result", "", 20, 100, 260, 24)
+    txtbox("Enter your name", "userName", 20, 50, 260) {
+        set_label("Result", "You entered: " + userName)
+    }
+}
