@@ -18,10 +18,9 @@ Nova is simple but powerful and a beginner-friendly coding language made by me (
 
 ## Getting Started
 
-### Prerequisites
+### Dependencies
 
-- **Python 3.7+** required to run the Nova compiler GUI (`nova_compiler.py`).
-- **.NET SDK or .NET Framework** required to compile the generated C# code. Make sure that `csc.exe` is installed and accessible.
+- None!
 
 ### Running The Compiler
 
@@ -74,6 +73,7 @@ For questions or help, open an issue on the GitHub repo or reach out to me, Kerb
 
 
 Thank you for looking at or maybe even trying out Nova!
+
 
 
 
