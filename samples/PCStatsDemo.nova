@@ -1,0 +1,11 @@
+use novapc
+use novaui
+
+have running = 1
+
+ui_window("PC Stats Demo", 400, 400) {
+    named_label("stats", "Loading...", 10, 10, 380, 140)
+    while (running == 1, 100) {
+        set_label("stats", all_pc())
+    }
+}

@@ -1,0 +1,15 @@
+use novaui
+
+have number = 0
+
+colors(Nova) {}
+
+ui_window("Random Number Test", 300, 300) {
+    named_label("Out", "0", 10, 10, 480, 60)
+    button("RNG", 10, 50, 50, 30) {
+        clicked() {
+            number = rand(1, 2, 3, 4, 5)
+            set_label("Out", number)
+        }
+    }
+}
